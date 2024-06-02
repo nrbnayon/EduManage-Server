@@ -30,6 +30,7 @@ async function run() {
   try {
     await client.connect();
     const userCollection = client.db("EduManage").collection("allUsers");
+    const courseCollection = client.db("EduManage").collection("allCourses");
 
     //JWT
     app.post("/jwt", async (req, res) => {
@@ -42,6 +43,34 @@ async function run() {
       );
       res.send({ token });
     });
+
+    // verify token
+    const verifyToken = (req, res, next) => {
+      if (!req.headers.authorization) {
+        return res.status(401).send({ message: "forbidden access" });
+      }
+      const token = req.headers.authorization.split(" ")[1];
+      jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
+        if (err) {
+          return res.status(401).send({ message: "forbidden access" });
+        } else {
+          req.decoded = decoded;
+          next();
+        }
+      });
+    };
+
+    //verify Admin
+    const verifyAdmin = async (req, res, next) => {
+      const email = req.decoded.email;
+      const query = { email: email };
+      const user = await userCollection.findOne(query);
+      const isAdmin = user?.role === "admin";
+      if (!isAdmin) {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+      next();
+    };
 
     // Users related API
     app.get("/users", async (req, res) => {
@@ -68,6 +97,30 @@ async function run() {
       } catch (error) {
         console.error("Error inserting user:", error);
         res.status(500).send("Failed to insert user");
+      }
+    });
+
+    //All Course related Api
+    app.get("/allCourse", async (req, res) => {
+      try {
+        const result = await courseCollection.find().toArray();
+        res.send(result);
+      } catch (error) {
+        res.status(500).send("Failed to fetch reviews");
+      }
+    });
+
+    // Endpoint to get popular courses based on highest enrollment
+    app.get("/popular-courses", async (req, res) => {
+      try {
+        const result = await courseCollection
+          .find()
+          .sort({ totalEnrollment: -1 })
+          .limit(5)
+          .toArray();
+        res.send(result);
+      } catch (error) {
+        res.status(500).send("Failed to fetch popular courses");
       }
     });
 
