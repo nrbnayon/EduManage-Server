@@ -31,6 +31,8 @@ async function run() {
     await client.connect();
     const userCollection = client.db("EduManage").collection("allUsers");
     const courseCollection = client.db("EduManage").collection("allCourses");
+    const feedbacksCollection = client.db("EduManage").collection("feedbacks");
+    const statsCollection = client.db("EduManage").collection("stats");
 
     //JWT
     app.post("/jwt", async (req, res) => {
@@ -81,6 +83,14 @@ async function run() {
         res.status(500).send("Failed to fetch reviews");
       }
     });
+    app.get("/state", async (req, res) => {
+      try {
+        const result = await statsCollection.find().toArray();
+        res.send(result);
+      } catch (error) {
+        res.status(500).send("Failed to fetch reviews");
+      }
+    });
     app.post("/users", async (req, res) => {
       const user = req.body;
       const query = { userEmail: user.email };
@@ -92,6 +102,12 @@ async function run() {
             .send({ message: "User already exists", insertedId: null });
         } else {
           const result = await userCollection.insertOne(user);
+          await statsCollection.updateOne(
+            { _id: new ObjectId("665ce46ccce6c97b84e3c1a4") },
+            { $inc: { totalUsers: 1 } },
+            { upsert: true }
+          );
+
           res.status(201).send(result);
         }
       } catch (error) {
@@ -121,6 +137,16 @@ async function run() {
         res.send(result);
       } catch (error) {
         res.status(500).send("Failed to fetch popular courses");
+      }
+    });
+
+    //feedbacks api
+    app.get("/feedbacks", async (req, res) => {
+      try {
+        const result = await feedbacksCollection.find().toArray();
+        res.send(result);
+      } catch (error) {
+        res.status(500).send("Failed to fetch reviews");
       }
     });
 
