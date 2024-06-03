@@ -126,6 +126,20 @@ async function run() {
       }
     });
 
+    app.get("/courseDetails/:id", async (req, res) => {
+      const { id } = req.params;
+      try {
+        const course = await courseCollection.findOne({
+          _id: new ObjectId(id),
+        });
+        if (!course) {
+          return res.status(404).send({ message: "Course not found" });
+        }
+        res.send(course);
+      } catch (error) {
+        res.status(500).send({ message: "Failed to fetch course details" });
+      }
+    });
     // Endpoint to get popular courses based on highest enrollment
     app.get("/popular-courses", async (req, res) => {
       try {
