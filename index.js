@@ -4,6 +4,9 @@ const cors = require("cors");
 const jwt = require("jsonwebtoken");
 //env
 require("dotenv").config();
+
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+
 const port = process.env.PORT || 5000;
 const corsOptions = {
   origin: "http://localhost:5173",
@@ -116,6 +119,46 @@ async function run() {
       }
     });
 
+    //create admin api
+    app.patch("/users/admin/:id", verifyToken, async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const updateRole = {
+        $set: {
+          role: "admin",
+        },
+      };
+      const result = await userCollection.updateOne(filter, updateRole);
+      res.send(result);
+    });
+
+    app.get("/users/admin/:email", verifyToken, async (req, res) => {
+      try {
+        const email = req.params.email;
+
+        // Check if the email in the request matches the email in the token
+        if (email !== req.decoded.email) {
+          return res.status(403).send({ message: "Unauthorized access" });
+        }
+
+        // Query the database for the user by email
+        const query = { email: email };
+        const user = await userCollection.findOne(query);
+
+        let admin = false;
+        if (user) {
+          admin = user.role === "admin";
+        }
+
+        // Send a JSON response
+        res.send({ admin });
+      } catch (error) {
+        res
+          .status(500)
+          .send({ message: "Internal server error", error: error.message });
+      }
+    });
+
     //All Course related Api
     app.get("/allCourse", async (req, res) => {
       try {
@@ -162,6 +205,25 @@ async function run() {
       } catch (error) {
         res.status(500).send("Failed to fetch reviews");
       }
+    });
+
+    // payment intent
+    app.post("/create-payment-intent", async (req, res) => {
+      const { price } = req.body;
+      const amount = parseInt(price * 100);
+      // Create a PaymentIntent with the order amount and currency
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: amount,
+        currency: "usd",
+        payment_method_types: ["card"],
+        // automatic_payment_methods: {
+        //   enabled: true,
+        // },
+      });
+
+      res.send({
+        clientSecret: paymentIntent.client_secret,
+      });
     });
 
     await client.db("admin").command({ ping: 1 });
