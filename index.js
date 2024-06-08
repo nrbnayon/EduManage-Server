@@ -36,7 +36,7 @@ async function run() {
     const courseCollection = client.db("EduManage").collection("allCourses");
     const feedbacksCollection = client.db("EduManage").collection("feedbacks");
     const statsCollection = client.db("EduManage").collection("stats");
-    const teacherCollection = client
+    const teacherRequestCollection = client
       .db("EduManage")
       .collection("TeacherRequest");
     const courseEnrollCollection = client
@@ -102,7 +102,7 @@ async function run() {
     });
     app.post("/users", async (req, res) => {
       const user = req.body;
-      const query = { userEmail: user.email };
+      const query = { userEmail: user.userEmail };
       try {
         const existingUser = await userCollection.findOne(query);
         if (existingUser) {
@@ -122,6 +122,50 @@ async function run() {
       } catch (error) {
         console.error("Error inserting user:", error);
         res.status(500).send("Failed to insert user");
+      }
+    });
+
+    app.patch("/users/teacher-request/:id", verifyToken, async (req, res) => {
+      const id = req.params.id;
+      const email = req.query.email;
+      const filterById = { _id: new ObjectId(id) };
+      const filterByEmail = { userEmail: email };
+
+      const updateRole = {
+        $set: {
+          userRole: "teacher",
+          status: "success",
+        },
+      };
+
+      try {
+        const requestUpdateResult = await teacherRequestCollection.updateOne(
+          filterById,
+          updateRole
+        );
+        const userUpdateResult = await userCollection.updateOne(
+          filterByEmail,
+          updateRole
+        );
+        if (
+          requestUpdateResult.modifiedCount > 0 &&
+          userUpdateResult.modifiedCount > 0
+        ) {
+          res.send({
+            success: true,
+            message: "User role updated successfully in both collections.",
+          });
+        } else {
+          res.status(400).send({
+            success: false,
+            message: "Failed to update user role in one or both collections.",
+          });
+        }
+      } catch (error) {
+        console.error("Error updating user role:", error);
+        res
+          .status(500)
+          .send({ success: false, message: "Internal server error." });
       }
     });
 
@@ -149,7 +193,6 @@ async function run() {
     });
 
     // total enrollment api
-
     app.patch("/updateTotalEnrollment/:id", async (req, res) => {
       const id = req.params.id;
       const filter = { _id: new ObjectId(id) };
@@ -188,13 +231,14 @@ async function run() {
         res.status(500).send("Failed to update total enrollment student");
       }
     });
+
     //create admin api
     app.patch("/users/admin/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
       const filter = { _id: new ObjectId(id) };
       const updateRole = {
         $set: {
-          role: "admin",
+          userRole: "admin",
         },
       };
       const result = await userCollection.updateOne(filter, updateRole);
@@ -231,7 +275,7 @@ async function run() {
     app.post("/teaching-request", async (req, res) => {
       const request = req.body;
       try {
-        const result = await teacherCollection.insertOne(request);
+        const result = await teacherRequestCollection.insertOne(request);
         res.send(result);
       } catch (error) {
         console.error("Error enroll:", error);
@@ -239,9 +283,29 @@ async function run() {
       }
     });
 
+    app.get("/users/teacher/:email", verifyToken, async (req, res) => {
+      try {
+        const email = req.params.email;
+        if (email !== req.decoded.email) {
+          return res.status(403).send({ message: "Unauthorized access" });
+        }
+        const query = { userEmail: email };
+        const user = await userCollection.findOne(query);
+        let teacher = false;
+        if (user) {
+          teacher = user.userRole === "teacher";
+        }
+        res.send({ teacher });
+      } catch (error) {
+        res
+          .status(500)
+          .send({ message: "Internal server error", error: error.message });
+      }
+    });
+
     app.get("/teaching-request", async (req, res) => {
       try {
-        const result = await teacherCollection.find().toArray();
+        const result = await teacherRequestCollection.find().toArray();
         res.send(result);
       } catch (error) {
         console.error("Error loading teaching requests:", error);
@@ -306,9 +370,6 @@ async function run() {
         amount: amount,
         currency: "usd",
         payment_method_types: ["card"],
-        // automatic_payment_methods: {
-        //   enabled: true,
-        // },
       });
 
       res.send({
