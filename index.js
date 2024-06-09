@@ -39,6 +39,9 @@ async function run() {
     const teacherRequestCollection = client
       .db("EduManage")
       .collection("TeacherRequest");
+    const approvedTeacherCollection = client
+      .db("EduManage")
+      .collection("Teachers");
     const courseEnrollCollection = client
       .db("EduManage")
       .collection("EnrollCollection");
@@ -159,6 +162,53 @@ async function run() {
           res.status(400).send({
             success: false,
             message: "Failed to update user role in one or both collections.",
+          });
+        }
+      } catch (error) {
+        console.error("Error updating user role:", error);
+        res
+          .status(500)
+          .send({ success: false, message: "Internal server error." });
+      }
+    });
+
+    // Endpoint to approve a teacher
+    app.post("/users/teacher-approve/:id", verifyToken, async (req, res) => {
+      const id = req.params.id;
+      console.log("ID:", id);
+
+      const filterById = { _id: new ObjectId(id) };
+
+      try {
+        // Find the approved teacher request
+        const approvedTeacher = await teacherRequestCollection.findOne(
+          filterById
+        );
+
+        if (approvedTeacher) {
+          // Insert into approvedTeacherCollection
+          const upload = await approvedTeacherCollection.insertOne(
+            approvedTeacher
+          );
+          // Delete from teacherRequestCollection
+          const deleting = await teacherRequestCollection.deleteOne(filterById);
+
+          if (upload.acknowledged && deleting.deletedCount > 0) {
+            res.send({
+              success: true,
+              message: "User role updated successfully in both collections.",
+            });
+          } else {
+            res.status(400).send({
+              success: false,
+              message:
+                "Failed to insert into approvedTeacherCollection or delete from teacherRequestCollection.",
+            });
+          }
+        } else {
+          res.status(400).send({
+            success: false,
+            message: "Failed to find the user for approved teacher collection.",
           });
         }
       } catch (error) {
