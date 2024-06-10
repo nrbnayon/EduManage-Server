@@ -175,7 +175,6 @@ async function run() {
     // Endpoint to approve a teacher
     app.post("/users/teacher-approve/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
-      console.log("ID:", id);
 
       const filterById = { _id: new ObjectId(id) };
 
@@ -333,6 +332,70 @@ async function run() {
       }
     });
 
+    //  approve a teacher
+    app.post("/users/teacher-approve/:id", verifyToken, async (req, res) => {
+      const id = req.params.id;
+      const filterById = { _id: new ObjectId(id) };
+      try {
+        const approvedTeacher = await teacherRequestCollection.findOne(
+          filterById
+        );
+
+        if (approvedTeacher) {
+          // Insert into approvedTeacherCollection
+          const upload = await approvedTeacherCollection.insertOne(
+            approvedTeacher
+          );
+          // Delete from teacherRequestCollection
+          const deleting = await teacherRequestCollection.deleteOne(filterById);
+
+          if (upload.acknowledged && deleting.deletedCount > 0) {
+            res.send({
+              success: true,
+              message: "User role updated successfully in both collections.",
+            });
+          } else {
+            res.status(400).send({
+              success: false,
+              message:
+                "Failed to insert into approvedTeacherCollection or delete from teacherRequestCollection.",
+            });
+          }
+        } else {
+          res.status(400).send({
+            success: false,
+            message: "Failed to find the user for approved teacher collection.",
+          });
+        }
+      } catch (error) {
+        console.error("Error updating user role:", error);
+        res
+          .status(500)
+          .send({ success: false, message: "Internal server error." });
+      }
+    });
+
+    app.patch("/users/teacher-reject/:id", verifyToken, async (req, res) => {
+      const id = req.params.id;
+      const filterById = { _id: new ObjectId(id) };
+      try {
+        const updateStatus = {
+          $set: {
+            status: "reject",
+          },
+        };
+        const result = await teacherRequestCollection.updateOne(
+          filterById,
+          updateStatus
+        );
+        res.send(result);
+      } catch (error) {
+        res
+          .status(500)
+          .send({ message: "Internal server error", error: error.message });
+      }
+    });
+
     app.get("/users/teacher/:email", verifyToken, async (req, res) => {
       try {
         const email = req.params.email;
@@ -341,17 +404,64 @@ async function run() {
         }
         const query = { userEmail: email };
         const user = await userCollection.findOne(query);
+        const apply = await teacherRequestCollection.findOne({ email });
         let teacher = false;
+        let status = "";
         if (user) {
           teacher = user.userRole === "teacher";
         }
-        res.send({ teacher });
+        if (apply) {
+          status = apply?.status;
+        }
+        res.send({ teacher, status });
       } catch (error) {
         res
           .status(500)
           .send({ message: "Internal server error", error: error.message });
       }
     });
+    // reapply for teaching
+    app.patch(
+      "/teaching-request/reapply/:email",
+      verifyToken,
+      async (req, res) => {
+        try {
+          const email = req.params.email;
+
+          if (email !== req.decoded.email) {
+            return res.status(403).send({ message: "Unauthorized access" });
+          }
+
+          const query = { email };
+          const update = { $set: { status: "pending" } };
+
+          const result = await teacherRequestCollection.updateOne(
+            query,
+            update
+          );
+
+          if (result.modifiedCount > 0) {
+            const updatedDoc = await teacherRequestCollection.findOne(query);
+            res.send({
+              success: true,
+              message: "Reapplication submitted successfully.",
+              data: updatedDoc,
+            });
+          } else {
+            res.status(404).send({
+              success: false,
+              message: "No application found for this email.",
+            });
+          }
+        } catch (error) {
+          res.status(500).send({
+            success: false,
+            message: "Internal server error",
+            error: error.message,
+          });
+        }
+      }
+    );
 
     app.get("/teaching-request", async (req, res) => {
       try {
@@ -375,6 +485,7 @@ async function run() {
 
     app.get("/courseDetails/:id", async (req, res) => {
       const { id } = req.params;
+      console.log("id", id);
       try {
         const course = await courseCollection.findOne({
           _id: new ObjectId(id),
