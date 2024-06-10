@@ -127,6 +127,21 @@ async function run() {
         res.status(500).send("Failed to insert user");
       }
     });
+    app.get("/users/teacher/:email", verifyToken, async (req, res) => {
+      try {
+        const email = req.params.email;
+        if (email !== req.decoded.email) {
+          return res.status(403).send({ message: "Unauthorized access" });
+        }
+        const query = { userEmail: email };
+        const user = await userCollection.findOne(query);
+        res.send({ user });
+      } catch (error) {
+        res
+          .status(500)
+          .send({ message: "Internal server error", error: error.message });
+      }
+    });
 
     app.patch("/users/teacher-request/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
@@ -485,7 +500,6 @@ async function run() {
 
     app.get("/courseDetails/:id", async (req, res) => {
       const { id } = req.params;
-      console.log("id", id);
       try {
         const course = await courseCollection.findOne({
           _id: new ObjectId(id),
@@ -519,6 +533,18 @@ async function run() {
         res.send(result);
       } catch (error) {
         res.status(500).send("Failed to fetch reviews");
+      }
+    });
+    app.post("/feedbacks", async (req, res) => {
+      try {
+        const feedback = req.body;
+        if (!feedback.feedbackText || !feedback.rating) {
+          return res.status(400).send("Description and rating are required");
+        }
+        const result = await feedbacksCollection.insertOne(feedback);
+        res.send(result);
+      } catch (error) {
+        res.status(500).send("Failed to add feedback");
       }
     });
 
