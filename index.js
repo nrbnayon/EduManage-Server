@@ -95,6 +95,7 @@ async function run() {
         res.status(500).send("Failed to fetch reviews");
       }
     });
+
     app.get("/state", async (req, res) => {
       try {
         const result = await statsCollection.find().toArray();
@@ -128,6 +129,30 @@ async function run() {
       }
     });
     app.get("/users/teacher/:email", verifyToken, async (req, res) => {
+      try {
+        const email = req.params.email;
+        if (email !== req.decoded.email) {
+          return res.status(403).send({ message: "Unauthorized access" });
+        }
+        const query = { userEmail: email };
+        const user = await userCollection.findOne(query);
+        const apply = await teacherRequestCollection.findOne({ email });
+        let teacher = false;
+        let status = "";
+        if (user) {
+          teacher = user.userRole === "teacher";
+        }
+        if (apply) {
+          status = apply?.status;
+        }
+        res.send({ teacher, status });
+      } catch (error) {
+        res
+          .status(500)
+          .send({ message: "Internal server error", error: error.message });
+      }
+    });
+    app.get("/users/profile/:email", verifyToken, async (req, res) => {
       try {
         const email = req.params.email;
         if (email !== req.decoded.email) {
@@ -411,30 +436,6 @@ async function run() {
       }
     });
 
-    app.get("/users/teacher/:email", verifyToken, async (req, res) => {
-      try {
-        const email = req.params.email;
-        if (email !== req.decoded.email) {
-          return res.status(403).send({ message: "Unauthorized access" });
-        }
-        const query = { userEmail: email };
-        const user = await userCollection.findOne(query);
-        const apply = await teacherRequestCollection.findOne({ email });
-        let teacher = false;
-        let status = "";
-        if (user) {
-          teacher = user.userRole === "teacher";
-        }
-        if (apply) {
-          status = apply?.status;
-        }
-        res.send({ teacher, status });
-      } catch (error) {
-        res
-          .status(500)
-          .send({ message: "Internal server error", error: error.message });
-      }
-    });
     // reapply for teaching
     app.patch(
       "/teaching-request/reapply/:email",
@@ -497,6 +498,25 @@ async function run() {
         res.status(500).send("Failed to fetch reviews");
       }
     });
+    app.get("/all-pending-courses", async (req, res) => {
+      try {
+        const pendingCourses = await courseCollection
+          .find({ status: "pending" })
+          .toArray();
+        res.send(pendingCourses);
+      } catch (error) {
+        res.status(500).send("Failed to fetch courses");
+      }
+    });
+    app.post("/new-course", async (req, res) => {
+      try {
+        const course = req.body;
+        const result = await courseCollection.insertOne(course);
+        res.send(result);
+      } catch (error) {
+        res.status(500).send("Failed to add course");
+      }
+    });
 
     app.get("/courseDetails/:id", async (req, res) => {
       const { id } = req.params;
@@ -512,6 +532,20 @@ async function run() {
         res.status(500).send({ message: "Failed to fetch course details" });
       }
     });
+
+    app.get("/teachers-all-course/:email", async (req, res) => {
+      const email = req.params.email;
+      try {
+        const courses = await courseCollection.find({ email: email }).toArray();
+        if (courses.length === 0) {
+          return res.status(404).send({ message: "Courses not found" });
+        }
+        res.send(courses);
+      } catch (error) {
+        res.status(500).send({ message: "Failed to fetch course details" });
+      }
+    });
+
     // Endpoint to get popular courses based on highest enrollment
     app.get("/popular-courses", async (req, res) => {
       try {
