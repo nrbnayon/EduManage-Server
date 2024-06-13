@@ -2,6 +2,7 @@ const express = require("express");
 const app = express();
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
+const moment = require("moment-timezone");
 //env
 require("dotenv").config();
 
@@ -45,6 +46,9 @@ async function run() {
     const courseEnrollCollection = client
       .db("EduManage")
       .collection("EnrollCollection");
+    const assignmentCollection = client
+      .db("EduManage")
+      .collection("Assignments");
 
     //JWT
     app.post("/jwt", async (req, res) => {
@@ -177,7 +181,7 @@ async function run() {
       const updateRole = {
         $set: {
           userRole: "teacher",
-          status: "success",
+          status: "approved",
         },
       };
 
@@ -215,35 +219,18 @@ async function run() {
     // Endpoint to approve a teacher
     app.post("/users/teacher-approve/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
-
       const filterById = { _id: new ObjectId(id) };
-
       try {
         // Find the approved teacher request
         const approvedTeacher = await teacherRequestCollection.findOne(
           filterById
         );
-
         if (approvedTeacher) {
           // Insert into approvedTeacherCollection
           const upload = await approvedTeacherCollection.insertOne(
             approvedTeacher
           );
-          // Delete from teacherRequestCollection
-          const deleting = await teacherRequestCollection.deleteOne(filterById);
-
-          if (upload.acknowledged && deleting.deletedCount > 0) {
-            res.send({
-              success: true,
-              message: "User role updated successfully in both collections.",
-            });
-          } else {
-            res.status(400).send({
-              success: false,
-              message:
-                "Failed to insert into approvedTeacherCollection or delete from teacherRequestCollection.",
-            });
-          }
+          res.send(upload);
         } else {
           res.status(400).send({
             success: false,
@@ -257,6 +244,51 @@ async function run() {
           .send({ success: false, message: "Internal server error." });
       }
     });
+    // app.post("/users/teacher-approve/:id", verifyToken, async (req, res) => {
+    //   const id = req.params.id;
+
+    //   const filterById = { _id: new ObjectId(id) };
+
+    //   try {
+    //     // Find the approved teacher request
+    //     const approvedTeacher = await teacherRequestCollection.findOne(
+    //       filterById
+    //     );
+
+    //     if (approvedTeacher) {
+    //       // Insert into approvedTeacherCollection
+    //       const upload = await approvedTeacherCollection.insertOne(
+    //         approvedTeacher
+    //       );
+    //       res.send(upload);
+    //       // Delete from teacherRequestCollection
+    //       const deleting = await teacherRequestCollection.deleteOne(filterById);
+
+    //       if (upload.acknowledged && deleting.deletedCount > 0) {
+    //         res.send({
+    //           success: true,
+    //           message: "User role updated successfully in both collections.",
+    //         });
+    //       } else {
+    //         res.status(400).send({
+    //           success: false,
+    //           message:
+    //             "Failed to insert into approvedTeacherCollection or delete from teacherRequestCollection.",
+    //         });
+    //       }
+    //     } else {
+    //       res.status(400).send({
+    //         success: false,
+    //         message: "Failed to find the user for approved teacher collection.",
+    //       });
+    //     }
+    //   } catch (error) {
+    //     console.error("Error updating user role:", error);
+    //     res
+    //       .status(500)
+    //       .send({ success: false, message: "Internal server error." });
+    //   }
+    // });
 
     // Enroll Collection api
 
@@ -415,6 +447,48 @@ async function run() {
       }
     });
 
+    // app.post("/users/teacher-approve/:id", verifyToken, async (req, res) => {
+    //   const id = req.params.id;
+    //   const filterById = { _id: new ObjectId(id) };
+    //   try {
+    //     const approvedTeacher = await teacherRequestCollection.findOne(
+    //       filterById
+    //     );
+
+    //     if (approvedTeacher) {
+    //       // Insert into approvedTeacherCollection
+    //       const upload = await approvedTeacherCollection.insertOne(
+    //         approvedTeacher
+    //       );
+    //       // Delete from teacherRequestCollection
+    //       const deleting = await teacherRequestCollection.deleteOne(filterById);
+
+    //       if (upload.acknowledged && deleting.deletedCount > 0) {
+    //         res.send({
+    //           success: true,
+    //           message: "User role updated successfully in both collections.",
+    //         });
+    //       } else {
+    //         res.status(400).send({
+    //           success: false,
+    //           message:
+    //             "Failed to insert into approvedTeacherCollection or delete from teacherRequestCollection.",
+    //         });
+    //       }
+    //     } else {
+    //       res.status(400).send({
+    //         success: false,
+    //         message: "Failed to find the user for approved teacher collection.",
+    //       });
+    //     }
+    //   } catch (error) {
+    //     console.error("Error updating user role:", error);
+    //     res
+    //       .status(500)
+    //       .send({ success: false, message: "Internal server error." });
+    //   }
+    // });
+
     app.patch("/users/teacher-reject/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
       const filterById = { _id: new ObjectId(id) };
@@ -492,7 +566,9 @@ async function run() {
     //All Course related Api
     app.get("/allCourse", async (req, res) => {
       try {
-        const result = await courseCollection.find().toArray();
+        const result = await courseCollection
+          .find({ status: "approved" })
+          .toArray();
         res.send(result);
       } catch (error) {
         res.status(500).send("Failed to fetch reviews");
@@ -545,8 +621,136 @@ async function run() {
         res.status(500).send({ message: "Failed to fetch course details" });
       }
     });
+    app.get("/teachers-single-course/:id", async (req, res) => {
+      const id = req.params.id;
+      console.log(id);
+      try {
+        const course = await courseCollection.findOne({
+          _id: new ObjectId(id),
+        });
+        if (!course) {
+          return res.status(404).send({ message: "Courses not found" });
+        }
+        res.send(course);
+      } catch (error) {
+        res.status(500).send({ message: "Failed to fetch course details" });
+      }
+    });
 
-    // Endpoint to get popular courses based on highest enrollment
+    app.patch("/update-course/:id", async (req, res) => {
+      const id = req.params.id;
+      const updatedData = req.body;
+
+      try {
+        const result = await courseCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: updatedData }
+        );
+
+        if (result.modifiedCount === 1) {
+          res
+            .status(200)
+            .send({ success: true, message: "Course updated successfully" });
+        } else {
+          res.status(404).send({ success: false, message: "Course not found" });
+        }
+      } catch (error) {
+        res.status(500).send({
+          success: false,
+          message: "An error occurred while updating the course",
+        });
+      }
+    });
+    app.delete("/delete-course/:id", verifyToken, async (req, res) => {
+      const courseId = req.params.id;
+      const query = { _id: new ObjectId(courseId) };
+      try {
+        const result = await courseCollection.deleteOne(query);
+        if (result.deletedCount > 0) {
+          res.status(200).json({ deletedCount: result.deletedCount });
+        } else {
+          res.status(404).json({ message: "Course not found or not deleted" });
+        }
+      } catch (error) {
+        console.error("Error deleting cart Course:", error);
+        res.status(500).json({ message: "Internal server error" });
+      }
+    });
+
+    //assignment api
+
+    app.post("/create-assignment", async (req, res) => {
+      try {
+        const assignment = req.body;
+        const result = await assignmentCollection.insertOne(assignment);
+        res.send(result);
+      } catch (error) {
+        res.status(500).send("Failed to create assignment");
+      }
+    });
+
+    app.get("/all-assignment/:id", async (req, res) => {
+      const id = req.params.id;
+      try {
+        const assignment = await assignmentCollection
+          .find({ courseId: id })
+          .toArray();
+        if (assignment.length === 0) {
+          return res.status(404).send({ message: "Assignment not found" });
+        }
+        res.send(assignment);
+      } catch (error) {
+        res.status(500).send({ message: "Failed to fetch assignment details" });
+      }
+    });
+
+    app.get("/per-day-submit/:id", async (req, res) => {
+      const id = req.params.id;
+      try {
+        // Get the current date
+        const currentDate = new Date().toISOString().split("T")[0];
+        const assignments = await assignmentCollection.findOne({
+          courseId: id,
+          submissionDate: currentDate,
+        });
+        res.send({ assignments });
+      } catch (error) {
+        res.status(500).send({ message: "Failed to fetch assignment details" });
+      }
+    });
+
+    app.patch("/submit-assignment/:id", async (req, res) => {
+      const id = req.params.id;
+      console.log("Assignment ID:", id); // Debugging line
+
+      // Get the current date in Bangladesh timezone
+      const currentDate = moment().tz("Asia/Dhaka").format("YYYY-MM-DD");
+
+      try {
+        // Log the query and the update operation
+        console.log("Update Query:", { _id: new ObjectId(id) });
+        console.log("Update Operation:", {
+          $inc: { perDaySubmissions: 1 },
+          $set: { submissionDate: currentDate },
+        });
+
+        const result = await assignmentCollection.updateOne(
+          { _id: new ObjectId(id) },
+          {
+            $inc: { perDaySubmissions: 1 },
+            $set: { submissionDate: currentDate },
+          }
+        );
+
+        console.log("Update Result:", result);
+        res.send({ message: "Assignment submitted successfully", result });
+      } catch (error) {
+        console.error("Error updating assignment:", error);
+        res.status(500).send({ message: "Failed to submit assignment", error });
+      }
+    });
+
+    //  get popular courses based on highest enrollment
     app.get("/popular-courses", async (req, res) => {
       try {
         const result = await courseCollection
