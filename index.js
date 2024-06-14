@@ -91,12 +91,31 @@ async function run() {
     };
 
     // Users related API
-    app.get("/users", async (req, res) => {
+    // app.get("/users", async (req, res) => {
+    //   try {
+    //     const result = await userCollection.find().toArray();
+    //     res.send(result);
+    //   } catch (error) {
+    //     res.status(500).send("Failed to fetch reviews");
+    //   }
+    // });
+    app.get("/users", verifyToken, async (req, res) => {
+      const searchQuery = req.query.search || "";
+      const filter = {
+        $or: [
+          { userName: { $regex: searchQuery, $options: "i" } },
+          { userEmail: { $regex: searchQuery, $options: "i" } },
+        ],
+      };
+
       try {
-        const result = await userCollection.find().toArray();
-        res.send(result);
+        const users = await userCollection.find(filter).toArray();
+        res.send(users);
       } catch (error) {
-        res.status(500).send("Failed to fetch reviews");
+        console.error("Error fetching users:", error);
+        res
+          .status(500)
+          .send({ success: false, message: "Internal server error." });
       }
     });
 
@@ -369,12 +388,9 @@ async function run() {
     app.get("/users/admin/:email", verifyToken, async (req, res) => {
       try {
         const email = req.params.email;
-        // Check if the email in the request matches the email in the token
         if (email !== req.decoded.email) {
           return res.status(403).send({ message: "Unauthorized access" });
         }
-
-        // Query the database for the user by email
         const query = { userEmail: email };
         const user = await userCollection.findOne(query);
 
@@ -383,7 +399,6 @@ async function run() {
           admin = user.userRole === "admin";
         }
 
-        // Send a JSON response
         res.send({ admin });
       } catch (error) {
         res
@@ -577,13 +592,51 @@ async function run() {
     app.get("/all-pending-courses", async (req, res) => {
       try {
         const pendingCourses = await courseCollection
-          .find({ status: "pending" })
+          .find()
+          .sort({ status: 1 })
           .toArray();
         res.send(pendingCourses);
       } catch (error) {
         res.status(500).send("Failed to fetch courses");
       }
     });
+
+    // Approve Course Endpoint
+    app.patch("/approve-pending-course/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+        const filterById = { _id: new ObjectId(id) };
+        const updateStatus = { $set: { status: "approved" } };
+        const result = await courseCollection.updateOne(
+          filterById,
+          updateStatus
+        );
+        res.send(result);
+      } catch (error) {
+        res
+          .status(500)
+          .send({ message: "Internal server error", error: error.message });
+      }
+    });
+
+    // Reject Course Endpoint
+    app.patch("/reject-pending-course/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+        const filterById = { _id: new ObjectId(id) };
+        const updateStatus = { $set: { status: "rejected" } };
+        const result = await courseCollection.updateOne(
+          filterById,
+          updateStatus
+        );
+        res.send(result);
+      } catch (error) {
+        res
+          .status(500)
+          .send({ message: "Internal server error", error: error.message });
+      }
+    });
+
     app.post("/new-course", async (req, res) => {
       try {
         const course = req.body;
@@ -721,11 +774,7 @@ async function run() {
 
     app.patch("/submit-assignment/:id", async (req, res) => {
       const id = req.params.id;
-      console.log("Assignment ID:", id); // Debugging line
-
-      // Get the current date in Bangladesh timezone
       const currentDate = moment().tz("Asia/Dhaka").format("YYYY-MM-DD");
-
       try {
         // Log the query and the update operation
         console.log("Update Query:", { _id: new ObjectId(id) });
@@ -741,8 +790,6 @@ async function run() {
             $set: { submissionDate: currentDate },
           }
         );
-
-        console.log("Update Result:", result);
         res.send({ message: "Assignment submitted successfully", result });
       } catch (error) {
         console.error("Error updating assignment:", error);
@@ -783,6 +830,18 @@ async function run() {
         res.send(result);
       } catch (error) {
         res.status(500).send("Failed to add feedback");
+      }
+    });
+
+    app.get("/course-all-feedbacks/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+        const result = await feedbacksCollection
+          .find({ courserId: id })
+          .toArray();
+        res.send(result);
+      } catch (error) {
+        res.status(500).send("Failed to fetch reviews");
       }
     });
 
