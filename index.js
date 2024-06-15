@@ -589,19 +589,54 @@ async function run() {
         res.status(500).send("Failed to fetch reviews");
       }
     });
+    // app.get("/all-pending-courses", async (req, res) => {
+    //   try {
+    //     const pendingCourses = await courseCollection
+    //       .find()
+    //       .sort({ status: 1 })
+    //       .toArray();
+    //     res.send(pendingCourses);
+    //   } catch (error) {
+    //     res.status(500).send("Failed to fetch courses");
+    //   }
+    // });
+
+    // Approve Course Endpoint
+
     app.get("/all-pending-courses", async (req, res) => {
       try {
         const pendingCourses = await courseCollection
-          .find()
-          .sort({ status: 1 })
+          .aggregate([
+            {
+              $addFields: {
+                sortOrder: {
+                  $switch: {
+                    branches: [
+                      { case: { $eq: ["$status", "pending"] }, then: 1 },
+                      { case: { $eq: ["$status", "approved"] }, then: 2 },
+                      { case: { $eq: ["$status", "rejected"] }, then: 3 },
+                    ],
+                    default: 4,
+                  },
+                },
+              },
+            },
+            {
+              $sort: { sortOrder: 1 },
+            },
+            {
+              $project: { sortOrder: 0 },
+            },
+          ])
           .toArray();
+
         res.send(pendingCourses);
       } catch (error) {
+        console.error("Error fetching pending courses:", error);
         res.status(500).send("Failed to fetch courses");
       }
     });
 
-    // Approve Course Endpoint
     app.patch("/approve-pending-course/:id", async (req, res) => {
       try {
         const id = req.params.id;
@@ -611,6 +646,13 @@ async function run() {
           filterById,
           updateStatus
         );
+        if (result) {
+          await statsCollection.updateOne(
+            { _id: new ObjectId("665ce46ccce6c97b84e3c1a4") },
+            { $inc: { totalCourses: 1 } },
+            { upsert: true }
+          );
+        }
         res.send(result);
       } catch (error) {
         res
@@ -760,8 +802,8 @@ async function run() {
     app.get("/per-day-submit/:id", async (req, res) => {
       const id = req.params.id;
       try {
-        // Get the current date
-        const currentDate = new Date().toISOString().split("T")[0];
+        // const currentDate = new Date().toISOString().split("T")[0];
+        const currentDate = moment().tz("Asia/Dhaka").format("YYYY-MM-DD");
         const assignments = await assignmentCollection.findOne({
           courseId: id,
           submissionDate: currentDate,
@@ -774,6 +816,7 @@ async function run() {
 
     app.patch("/submit-assignment/:id", async (req, res) => {
       const id = req.params.id;
+      // const currentDate = new Date().toISOString().split("T")[0];
       const currentDate = moment().tz("Asia/Dhaka").format("YYYY-MM-DD");
       try {
         // Log the query and the update operation
