@@ -10,7 +10,7 @@ const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 
 const port = process.env.PORT || 5000;
 const corsOptions = {
-  origin: "http://localhost:5173",
+  origin: ["http://localhost:5173", "https://edu-manage.netlify.app"],
   credentials: true,
 };
 
@@ -32,7 +32,7 @@ const client = new MongoClient(uri, {
 
 async function run() {
   try {
-    await client.connect();
+    // await client.connect();
     const userCollection = client.db("EduManage").collection("allUsers");
     const courseCollection = client.db("EduManage").collection("allCourses");
     const feedbacksCollection = client.db("EduManage").collection("feedbacks");
@@ -311,7 +311,7 @@ async function run() {
 
     // Enroll Collection api
 
-    app.post("/enroll-course", async (req, res) => {
+    app.post("/enroll-course", verifyToken, async (req, res) => {
       const course = req.body;
       try {
         const result = await courseEnrollCollection.insertOne(course);
@@ -321,7 +321,7 @@ async function run() {
       }
     });
     // single user enroll info
-    app.get("/enroll-info", async (req, res) => {
+    app.get("/enroll-info", verifyToken, async (req, res) => {
       const email = req.query.studentEmail;
       const query = { studentEmail: email };
       try {
@@ -333,7 +333,7 @@ async function run() {
     });
 
     // total enrollment api
-    app.patch("/updateTotalEnrollment/:id", async (req, res) => {
+    app.patch("/updateTotalEnrollment/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
       const filter = { _id: new ObjectId(id) };
 
@@ -408,7 +408,7 @@ async function run() {
     });
 
     //Teacher api
-    app.post("/teaching-request", async (req, res) => {
+    app.post("/teaching-request", verifyToken, async (req, res) => {
       const request = req.body;
       try {
         const result = await teacherRequestCollection.insertOne(request);
@@ -420,47 +420,55 @@ async function run() {
     });
 
     //  approve a teacher
-    app.post("/users/teacher-approve/:id", verifyToken, async (req, res) => {
-      const id = req.params.id;
-      const filterById = { _id: new ObjectId(id) };
-      try {
-        const approvedTeacher = await teacherRequestCollection.findOne(
-          filterById
-        );
-
-        if (approvedTeacher) {
-          // Insert into approvedTeacherCollection
-          const upload = await approvedTeacherCollection.insertOne(
-            approvedTeacher
+    app.post(
+      "/users/teacher-approve/:id",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        const id = req.params.id;
+        const filterById = { _id: new ObjectId(id) };
+        try {
+          const approvedTeacher = await teacherRequestCollection.findOne(
+            filterById
           );
-          // Delete from teacherRequestCollection
-          const deleting = await teacherRequestCollection.deleteOne(filterById);
 
-          if (upload.acknowledged && deleting.deletedCount > 0) {
-            res.send({
-              success: true,
-              message: "User role updated successfully in both collections.",
-            });
+          if (approvedTeacher) {
+            // Insert into approvedTeacherCollection
+            const upload = await approvedTeacherCollection.insertOne(
+              approvedTeacher
+            );
+            // Delete from teacherRequestCollection
+            const deleting = await teacherRequestCollection.deleteOne(
+              filterById
+            );
+
+            if (upload.acknowledged && deleting.deletedCount > 0) {
+              res.send({
+                success: true,
+                message: "User role updated successfully in both collections.",
+              });
+            } else {
+              res.status(400).send({
+                success: false,
+                message:
+                  "Failed to insert into approvedTeacherCollection or delete from teacherRequestCollection.",
+              });
+            }
           } else {
             res.status(400).send({
               success: false,
               message:
-                "Failed to insert into approvedTeacherCollection or delete from teacherRequestCollection.",
+                "Failed to find the user for approved teacher collection.",
             });
           }
-        } else {
-          res.status(400).send({
-            success: false,
-            message: "Failed to find the user for approved teacher collection.",
-          });
+        } catch (error) {
+          console.error("Error updating user role:", error);
+          res
+            .status(500)
+            .send({ success: false, message: "Internal server error." });
         }
-      } catch (error) {
-        console.error("Error updating user role:", error);
-        res
-          .status(500)
-          .send({ success: false, message: "Internal server error." });
       }
-    });
+    );
 
     // app.post("/users/teacher-approve/:id", verifyToken, async (req, res) => {
     //   const id = req.params.id;
@@ -568,7 +576,7 @@ async function run() {
       }
     );
 
-    app.get("/teaching-request", async (req, res) => {
+    app.get("/teaching-request", verifyToken, async (req, res) => {
       try {
         const result = await teacherRequestCollection.find().toArray();
         res.send(result);
@@ -603,7 +611,7 @@ async function run() {
 
     // Approve Course Endpoint
 
-    app.get("/all-pending-courses", async (req, res) => {
+    app.get("/all-pending-courses", verifyToken, async (req, res) => {
       try {
         const pendingCourses = await courseCollection
           .aggregate([
@@ -637,49 +645,59 @@ async function run() {
       }
     });
 
-    app.patch("/approve-pending-course/:id", async (req, res) => {
-      try {
-        const id = req.params.id;
-        const filterById = { _id: new ObjectId(id) };
-        const updateStatus = { $set: { status: "approved" } };
-        const result = await courseCollection.updateOne(
-          filterById,
-          updateStatus
-        );
-        if (result) {
-          await statsCollection.updateOne(
-            { _id: new ObjectId("665ce46ccce6c97b84e3c1a4") },
-            { $inc: { totalCourses: 1 } },
-            { upsert: true }
+    app.patch(
+      "/approve-pending-course/:id",
+      verifyToken,
+
+      async (req, res) => {
+        try {
+          const id = req.params.id;
+          const filterById = { _id: new ObjectId(id) };
+          const updateStatus = { $set: { status: "approved" } };
+          const result = await courseCollection.updateOne(
+            filterById,
+            updateStatus
           );
+          if (result) {
+            await statsCollection.updateOne(
+              { _id: new ObjectId("665ce46ccce6c97b84e3c1a4") },
+              { $inc: { totalCourses: 1 } },
+              { upsert: true }
+            );
+          }
+          res.send(result);
+        } catch (error) {
+          res
+            .status(500)
+            .send({ message: "Internal server error", error: error.message });
         }
-        res.send(result);
-      } catch (error) {
-        res
-          .status(500)
-          .send({ message: "Internal server error", error: error.message });
       }
-    });
+    );
 
     // Reject Course Endpoint
-    app.patch("/reject-pending-course/:id", async (req, res) => {
-      try {
-        const id = req.params.id;
-        const filterById = { _id: new ObjectId(id) };
-        const updateStatus = { $set: { status: "rejected" } };
-        const result = await courseCollection.updateOne(
-          filterById,
-          updateStatus
-        );
-        res.send(result);
-      } catch (error) {
-        res
-          .status(500)
-          .send({ message: "Internal server error", error: error.message });
-      }
-    });
+    app.patch(
+      "/reject-pending-course/:id",
+      verifyToken,
 
-    app.post("/new-course", async (req, res) => {
+      async (req, res) => {
+        try {
+          const id = req.params.id;
+          const filterById = { _id: new ObjectId(id) };
+          const updateStatus = { $set: { status: "rejected" } };
+          const result = await courseCollection.updateOne(
+            filterById,
+            updateStatus
+          );
+          res.send(result);
+        } catch (error) {
+          res
+            .status(500)
+            .send({ message: "Internal server error", error: error.message });
+        }
+      }
+    );
+
+    app.post("/new-course", verifyToken, async (req, res) => {
       try {
         const course = req.body;
         const result = await courseCollection.insertOne(course);
@@ -704,7 +722,7 @@ async function run() {
       }
     });
 
-    app.get("/teachers-all-course/:email", async (req, res) => {
+    app.get("/teachers-all-course/:email", verifyToken, async (req, res) => {
       const email = req.params.email;
       try {
         const courses = await courseCollection.find({ email: email }).toArray();
@@ -716,9 +734,8 @@ async function run() {
         res.status(500).send({ message: "Failed to fetch course details" });
       }
     });
-    app.get("/teachers-single-course/:id", async (req, res) => {
+    app.get("/teachers-single-course/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
-      console.log(id);
       try {
         const course = await courseCollection.findOne({
           _id: new ObjectId(id),
@@ -732,7 +749,7 @@ async function run() {
       }
     });
 
-    app.patch("/update-course/:id", async (req, res) => {
+    app.patch("/update-course/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
       const updatedData = req.body;
 
@@ -774,7 +791,7 @@ async function run() {
 
     //assignment api
 
-    app.post("/create-assignment", async (req, res) => {
+    app.post("/create-assignment", verifyToken, async (req, res) => {
       try {
         const assignment = req.body;
         const result = await assignmentCollection.insertOne(assignment);
@@ -784,7 +801,7 @@ async function run() {
       }
     });
 
-    app.get("/all-assignment/:id", async (req, res) => {
+    app.get("/all-assignment/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
       try {
         const assignment = await assignmentCollection
@@ -799,7 +816,7 @@ async function run() {
       }
     });
 
-    app.get("/per-day-submit/:id", async (req, res) => {
+    app.get("/per-day-submit/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
       try {
         // const currentDate = new Date().toISOString().split("T")[0];
@@ -814,18 +831,11 @@ async function run() {
       }
     });
 
-    app.patch("/submit-assignment/:id", async (req, res) => {
+    app.patch("/submit-assignment/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
       // const currentDate = new Date().toISOString().split("T")[0];
       const currentDate = moment().tz("Asia/Dhaka").format("YYYY-MM-DD");
       try {
-        // Log the query and the update operation
-        console.log("Update Query:", { _id: new ObjectId(id) });
-        console.log("Update Operation:", {
-          $inc: { perDaySubmissions: 1 },
-          $set: { submissionDate: currentDate },
-        });
-
         const result = await assignmentCollection.updateOne(
           { _id: new ObjectId(id) },
           {
@@ -876,7 +886,7 @@ async function run() {
       }
     });
 
-    app.get("/course-all-feedbacks/:id", async (req, res) => {
+    app.get("/course-all-feedbacks/:id", verifyToken, async (req, res) => {
       try {
         const { id } = req.params;
         const result = await feedbacksCollection
@@ -889,7 +899,7 @@ async function run() {
     });
 
     // payment intent
-    app.post("/create-payment-intent", async (req, res) => {
+    app.post("/create-payment-intent", verifyToken, async (req, res) => {
       const { price } = req.body;
       const amount = parseInt(price * 100);
       // Create a PaymentIntent with the order amount and currency
@@ -904,10 +914,10 @@ async function run() {
       });
     });
 
-    await client.db("admin").command({ ping: 1 });
-    console.log(
-      "Pinged your deployment. You successfully connected to MongoDB!"
-    );
+    // await client.db("admin").command({ ping: 1 });
+    // console.log(
+    //   "Pinged your deployment. You successfully connected to MongoDB!"
+    // );
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
